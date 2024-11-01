@@ -121,7 +121,7 @@ struct sync_cb_data {
 	int status;
 	void *ptr;
 };
-        
+
 struct smb2_context {
 
         t_socket fd;
@@ -226,6 +226,9 @@ struct smb2_context {
          */
         int passthrough;
 
+        /* to proxy auth blobs */
+        smb2_security_delegate sec_delegate;
+
         /* for oplock/lease breaks, inform the app */
         smb2_oplock_or_lease_break_cb oplock_or_lease_break_cb;
 
@@ -286,7 +289,7 @@ struct smb2_pdu {
 
         /* pointer to the unmarshalled payload in a reply */
         void *payload;
-    
+
         /* callback that frees the any additional memory allocated in the payload.
          * Or null if no additional memory needs to be freed.
          */

@@ -67,6 +67,15 @@ typedef void (*smb2_oplock_or_lease_break_cb)(struct smb2_context *smb2,
            uint8_t *new_oplock_level,
            uint32_t *new_lease_state);
 
+/*
+ * callback to app from middle of session-setup to allow proxy
+ * of server challenge and client authenticate messages
+ */
+typedef int (*smb2_security_delegate)(struct smb2_context *smb2,
+          void *auth_data,
+          uint8_t *inbuf, uint16_t inlen,
+          uint8_t **outbuf, uint16_t *outlen);
+
 /* Stat structure */
 #define SMB2_TYPE_FILE      0x00000000
 #define SMB2_TYPE_DIRECTORY 0x00000001
@@ -395,6 +404,12 @@ void smb2_set_error(struct smb2_context *smb2,
  */
 void smb2_register_error_callback(struct smb2_context *smb,
                     smb2_error_cb error_cb);
+
+/*
+ * Register a hook for proxying authentication blobs
+ */
+void smb2_register_security_delegate(struct smb2_context *smb,
+                    smb2_security_delegate delegate);
 
 /*
  * register for oplock or lease break callbacks
@@ -1214,7 +1229,8 @@ struct smb2_server_request_handlers {
                             const char *user,
                             const char *domain,
                             const char *workstation);
-        int (*session_established)(struct smb2_server *srvr, struct smb2_context *smb2);
+        int (*session_established)(struct smb2_server *srvr, struct smb2_context *smb2,
+                            uint8_t *auth_blob, int auth_len);
         int (*logoff_cmd)(struct smb2_server *srvr, struct smb2_context *smb2);
         int (*tree_connect_cmd)(struct smb2_server *srvr, struct smb2_context *smb2,
                             struct smb2_tree_connect_request *req,

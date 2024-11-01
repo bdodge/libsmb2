@@ -475,6 +475,12 @@ void smb2_register_error_callback(struct smb2_context *smb2,
         smb2->error_cb = error_cb;
 }
 
+void smb2_register_security_delegate(struct smb2_context *smb2,
+                    smb2_security_delegate delegate)
+{
+        smb2->sec_delegate = delegate;
+}
+
 void smb2_set_nterror(struct smb2_context *smb2, int nterror, const char *error_string, ...)
 {
         if (!smb2)

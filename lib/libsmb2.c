@@ -816,6 +816,33 @@ session_setup_cb(struct smb2_context *smb2, int status,
         }
 }
 
+static int
+default_security_delegate(struct smb2_context *smb2,
+                           void *auth_data,
+                           uint8_t *buf, uint16_t len,
+                           uint8_t **outbuf, uint16_t *outlen)
+{
+        if (smb2->sec == SMB2_SEC_NTLMSSP) {
+                /*ntlmssp_set_spnego_wrapping(c_data->auth_data, 1);*/
+                if (ntlmssp_generate_blob(NULL, smb2, time(NULL), auth_data,
+                                          buf, len,
+                                          outbuf, outlen) < 0) {
+                        return -1;
+                }
+        }
+#ifdef HAVE_LIBKRB5
+        else {
+                if (krb5_session_request(smb2, auth_data,
+                                         buf, len) < 0) {
+                        return -1;
+                }
+                *outlen = krb5_get_output_token_length(c_data->auth_data);
+                *outbuf = krb5_get_output_token_buffer(c_data->auth_data);
+        }
+#endif
+        return 0;
+}
+
 /* Returns 0 for success and -errno for failure */
 static int
 send_session_setup_request(struct smb2_context *smb2,
@@ -829,30 +856,21 @@ send_session_setup_request(struct smb2_context *smb2,
         memset(&req, 0, sizeof(struct smb2_session_setup_request));
         req.security_mode = (uint8_t)smb2->security_mode;
 
-        if (smb2->sec == SMB2_SEC_NTLMSSP) {
-                /*ntlmssp_set_spnego_wrapping(c_data->auth_data, 1);*/
-                if (ntlmssp_generate_blob(NULL, smb2, time(NULL), c_data->auth_data,
-                                          buf, len,
-                                          &req.security_buffer,
-                                          &req.security_buffer_length) < 0) {
+        /* generate a negotiate (buf == null) or authenticate message */
+        if (default_security_delegate(smb2, c_data->auth_data, buf, len,
+                                &req.security_buffer,
+                                &req.security_buffer_length) < 0) {
+                smb2_close_context(smb2);
+                return -1;
+        }
+        if (smb2->sec_delegate) {
+                if (smb2->sec_delegate(smb2, c_data->auth_data, buf, len,
+                                        &req.security_buffer,
+                                        &req.security_buffer_length) < 0) {
                         smb2_close_context(smb2);
                         return -1;
                 }
         }
-#ifdef HAVE_LIBKRB5
-        else {
-                if (krb5_session_request(smb2, c_data->auth_data,
-                                         buf, len) < 0) {
-                        smb2_close_context(smb2);
-                        return -1;
-                }
-                req.security_buffer_length =
-                        krb5_get_output_token_length(c_data->auth_data);
-                req.security_buffer =
-                        krb5_get_output_token_buffer(c_data->auth_data);
-        }
-#endif
-
         pdu = smb2_cmd_session_setup_async(smb2, &req,
                                            session_setup_cb, c_data);
         if (pdu == NULL) {
@@ -1667,7 +1685,7 @@ create_cb_2(struct smb2_context *smb2, int status,
             void *command_data, void *private_data)
 {
         struct create_cb_data *create_data = private_data;
-        
+
         if (status != SMB2_STATUS_SUCCESS) {
                 status = -nterror_to_errno(status);
         }
@@ -1731,7 +1749,7 @@ smb2_unlink_internal(struct smb2_context *smb2, const char *path,
                 smb2_set_error(smb2, "Failed to create create command");
                 return -ENOMEM;
         }
-        
+
         memset(&cl_req, 0, sizeof(struct smb2_close_request));
         cl_req.flags = SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB;
         memcpy(cl_req.file_id, compound_file_id, SMB2_FD_SIZE);
@@ -1744,7 +1762,7 @@ smb2_unlink_internal(struct smb2_context *smb2, const char *path,
                 return -ENOMEM;
         }
         smb2_add_compound_pdu(smb2, pdu, next_pdu);
-        
+
         smb2_queue_pdu(smb2, pdu);
 
         return 0;
@@ -1814,7 +1832,7 @@ smb2_mkdir_async(struct smb2_context *smb2, const char *path,
                 return -ENOMEM;
         }
         smb2_add_compound_pdu(smb2, pdu, next_pdu);
-        
+
         smb2_queue_pdu(smb2, pdu);
 
         return 0;
@@ -3387,7 +3405,7 @@ smb2_session_setup_request_cb(struct smb2_context *smb2, int status, void *comma
         uint8_t *response_token;
         int response_length;
         int is_spnego_wrapped;
-        int have_valid_session_key = 1;
+        int have_valid_session_key = 0;
         int ret;
 
         if (status) {
@@ -3459,10 +3477,6 @@ smb2_session_setup_request_cb(struct smb2_context *smb2, int status, void *comma
                 if (message_type == AUTHENTICATION_MESSAGE) {
                         if (!ntlmssp_get_authenticated(c_data->auth_data)) {
                                 smb2_set_error(smb2, "Authentication failed: %s", smb2_get_error(smb2));
-                                #if 0
-                                smb2_close_context(smb2);
-                                return;
-                                #else
                                 pdu = smb2_cmd_error_reply_async(smb2,
                                                 &err, SMB2_SESSION_SETUP,
                                                 SMB2_STATUS_LOGON_FAILURE, NULL, cb_data);
@@ -3470,12 +3484,12 @@ smb2_session_setup_request_cb(struct smb2_context *smb2, int status, void *comma
                                 smb2->next_pdu = smb2_allocate_pdu(smb2, SMB2_SESSION_SETUP,
                                                smb2_session_setup_request_cb, cb_data);
                                 more_processing_needed = 0;
-                                #endif
-                        }
-                        if (ntlmssp_get_session_key(c_data->auth_data,
+                        } else {
+                                if (ntlmssp_get_session_key(c_data->auth_data,
                                                     &smb2->session_key,
-                                                    &smb2->session_key_size) < 0) {
-                                have_valid_session_key = 0;
+                                                    &smb2->session_key_size) >= 0) {
+                                        have_valid_session_key = 1;
+                                }
                         }
                 }
         }
@@ -3485,21 +3499,6 @@ smb2_session_setup_request_cb(struct smb2_context *smb2, int status, void *comma
                 have_valid_session_key = 0;
         }
 #endif
-        if (smb2->sign && have_valid_session_key == 0) {
-                smb2_close_context(smb2);
-                smb2_set_error(smb2, "Signing required by server. Session "
-                               "Key is not available %s",
-                               smb2_get_error(smb2));
-                return;
-        }
-
-        if (smb2->sign)  {
-                /* Derive the signing key from session key
-                * This is based on negotiated protocol
-                */
-                smb2_create_signing_key(smb2);
-        }
-
         if (server->allow_anonymous &&
                          ((smb2->user == NULL || smb2->user[0] == '\0')||
                          (smb2->password == NULL || smb2->password[0] == '\0'))) {
@@ -3507,21 +3506,56 @@ smb2_session_setup_request_cb(struct smb2_context *smb2, int status, void *comma
         }
 
         if (!pdu) {
-                pdu = smb2_cmd_session_setup_reply_async(smb2, &rep, NULL, cb_data);
-                if (pdu == NULL) {
-                        return;
-                }
-
                 if (more_processing_needed) {
-                        pdu->header.status = SMB2_STATUS_MORE_PROCESSING_REQUIRED;
-                }
-                else {
                         if (server->handlers && server->handlers->session_established) {
-                                ret = server->handlers->session_established(server, smb2);
-                                if (ret) {
-                                        smb2_set_error(smb2, "server session start handler failed");
+                                ret = server->handlers->session_established(server, smb2, NULL, 0);
+                                if (ret < 0) {
+                                        smb2_set_error(smb2, "server session setup handler failed");
                                         smb2_close_context(smb2);
                                         return;
+                                } else if (ret == 0) {
+                                        /* handler didnt queue a reply */
+                                        pdu = smb2_cmd_session_setup_reply_async(smb2, &rep, NULL, cb_data);
+                                        if (pdu == NULL) {
+                                                return;
+                                        }
+                                        pdu->header.status = SMB2_STATUS_MORE_PROCESSING_REQUIRED;
+                                }
+                        }
+                        else {
+                                pdu = smb2_cmd_error_reply_async(smb2,
+                                                &err, SMB2_SESSION_SETUP,
+                                                SMB2_STATUS_NOT_IMPLEMENTED, NULL, cb_data);
+                        }
+                }
+                else {
+                        if (smb2->sign && have_valid_session_key == 0) {
+                                smb2_close_context(smb2);
+                                smb2_set_error(smb2, "Signing required by server. Session "
+                                               "Key is not available %s",
+                                               smb2_get_error(smb2));
+                                return;
+                        }
+
+                        if (smb2->sign)  {
+                                /* Derive the signing key from session key
+                                * This is based on negotiated protocol
+                                */
+                                smb2_create_signing_key(smb2);
+                        }
+                        if (server->handlers && server->handlers->session_established) {
+                                ret = server->handlers->session_established(server, smb2,
+                                               req->security_buffer, req->security_buffer_length);
+                                if (ret < 0) {
+                                        smb2_set_error(smb2, "server session establish handler failed");
+                                        smb2_close_context(smb2);
+                                        return;
+                                } else if (ret == 0) {
+                                        /* handler didnt queue a reply */
+                                        pdu = smb2_cmd_session_setup_reply_async(smb2, &rep, NULL, cb_data);
+                                        if (pdu == NULL) {
+                                                return;
+                                        }
                                 }
                         }
                         else {
@@ -3532,6 +3566,9 @@ smb2_session_setup_request_cb(struct smb2_context *smb2, int status, void *comma
                 }
         }
         if (!smb2->next_pdu) {
+                if (pdu) {
+                        smb2_free_pdu(smb2, pdu);
+                }
                 smb2_set_error(smb2, "can not alloc pdu for authorization session setup request");
                 smb2_close_context(smb2);
                 return;
