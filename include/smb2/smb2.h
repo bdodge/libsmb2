@@ -629,6 +629,16 @@ struct smb2_file_standard_info {
 };
 
 /*
+ * FILE_STREAM_INFORMATION
+ */
+struct smb2_file_stream_info {
+        int next_entry;
+        uint64_t stream_size;
+        uint64_t stream_allocation_size;
+        const char *stream_name;
+};
+
+/*
  * FILE_POSITION_INFORMATION
  */
 struct smb2_file_position_info {

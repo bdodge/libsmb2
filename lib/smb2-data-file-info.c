@@ -146,6 +146,91 @@ smb2_encode_file_standard_info(struct smb2_context *smb2,
 }
 
 int
+smb2_decode_file_stream_info(struct smb2_context *smb2,
+                               void *memctx,
+                               struct smb2_file_stream_info *fs,
+                               struct smb2_iovec *vec)
+{
+        int offset = 0;
+        int next_entry = 1;
+
+        uint32_t next_entry_offset = 0;
+
+        uint32_t name_len = 0;
+        const char *name;
+
+        while (next_entry) {
+                smb2_get_uint32(vec, offset + 0, &next_entry_offset);
+                smb2_get_uint32(vec, offset + 4, &name_len);
+                smb2_get_uint64(vec, offset + 8, &fs->stream_size);
+                smb2_get_uint64(vec, offset + 16, &fs->stream_allocation_size);
+
+                fs->next_entry = next_entry_offset != 0;
+
+                if (name_len > 0) {
+                        name = smb2_utf16_to_utf8((uint16_t *)&vec->buf[offset + 24], name_len / 2);
+                        fs->stream_name = smb2_alloc_data(smb2, memctx, strlen(name) + 1);
+                        if (fs->stream_name == NULL) {
+                                free(discard_const(name));
+                                return -1;
+                        }
+                        strcpy(discard_const(fs->stream_name), name);
+                        free(discard_const(name));
+                } else {
+                        fs->stream_name = NULL;
+                }
+
+                next_entry = fs->next_entry;
+                offset += next_entry_offset;
+                fs++;
+        }
+
+        return 0;
+}
+
+int
+smb2_encode_file_stream_info(struct smb2_context *smb2,
+                             struct smb2_file_stream_info *fs,
+                             struct smb2_iovec *vec)
+{
+        int offset = 0;
+        int next_entry = 1;
+
+        struct smb2_utf16 *name = NULL;
+        int name_len = 0;
+
+        while (next_entry) {
+                /* smb2_set_uint32(vec, offset + 4, fs->stream_name_length); */
+                smb2_set_uint32(vec, offset + 8, fs->stream_size);
+                smb2_set_uint32(vec, offset + 16, fs->stream_allocation_size);
+
+                if (fs->stream_name) {
+                        name = smb2_utf8_to_utf16((const char*)fs->stream_name);
+                        if (name) {
+                                name_len = 2 * name->len;
+                                smb2_set_uint32(vec, offset + 4, name_len);
+                                memcpy((uint16_t *)&vec->buf[offset + 24], name->val, name_len);
+                                free(name);
+                        } else {
+                                return -1;
+                        }
+                } else {
+                        name_len = 0;
+                        smb2_set_uint32(vec, offset + 4, 0);
+                }
+
+                next_entry = fs->next_entry;
+                offset += sizeof(struct smb2_file_stream_info) + name_len;
+
+                smb2_set_uint32(vec, offset + 0, next_entry ? offset : 0);
+
+                fs++;
+        }
+
+        return offset;
+}
+
+int
 smb2_decode_file_position_info(struct smb2_context *smb2,
                                void *memctx,
                                struct smb2_file_position_info *fs,
