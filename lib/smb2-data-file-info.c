@@ -269,7 +269,7 @@ smb2_decode_file_network_open_info(struct smb2_context *smb2,
 {
         uint64_t t;
 
-	if (vec->len < 56) {
+        if (vec->len < 56) {
                 return -1;
         }
 
@@ -296,7 +296,7 @@ smb2_encode_file_network_open_info(struct smb2_context *smb2,
                                    struct smb2_file_network_open_info *fs,
                                    struct smb2_iovec *vec)
 {
-		uint64_t t;
+        uint64_t t;
         if (vec->len < 56) {
                 return -1;
         }
@@ -331,7 +331,7 @@ smb2_decode_file_normalized_name_info(struct smb2_context *smb2,
         uint32_t name_len;
         const char *name;
 
-        if (vec->len < 40) {
+        if (vec->len < 4) {
                 return -1;
         }
 
@@ -341,10 +341,14 @@ smb2_decode_file_normalized_name_info(struct smb2_context *smb2,
 
         fs->file_name_length = name_len / 2;
 
+        /* it is possible the data is truncated if the blob len < name_len
+        * (status will be SMB2_STATUS_BUFFER_OVERFLOW), so allow this case
+        */
+        if (vec->len < (name_len + 4)) {
+                name_len = vec->len - 4;
+        }
+
         if (name_len > 0) {
-                if (vec->len < (name_len + 4)) {
-                        return -1;
-                }
                 name = smb2_utf16_to_utf8((uint16_t *)&vec->buf[4], name_len / 2);
                 fs->name = smb2_alloc_data(smb2, memctx, strlen(name) + 1);
                 if (fs->name == NULL) {

@@ -10,6 +10,7 @@ libsmb2_la_SOURCES = \
 	aes.h \
 	aes_reference.c \
 	aes.c \
+	aes_apple.c \
 	aes128ccm.h \
 	aes128ccm.c \
 	alloc.c \
