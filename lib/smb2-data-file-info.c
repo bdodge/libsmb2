@@ -467,7 +467,12 @@ smb2_encode_file_normalized_name_info(struct smb2_context *smb2,
                         if (vec->len < name_len + 4) {
                                 return -1;
                         }
-                        smb2_set_uint32(vec, 0, name_len);
+                        if (fs->file_name_length > name_len) {
+                                /* in case we are truncating name */
+                                smb2_set_uint32(vec, 0, 2 * fs->file_name_length);
+                        } else {
+                                smb2_set_uint32(vec, 0, name_len);
+                        }
                         memcpy((uint16_t *)&vec->buf[4], name->val, name_len);
                         free(name);
                         return 4 + name_len;
