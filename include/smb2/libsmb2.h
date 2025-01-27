@@ -1042,6 +1042,32 @@ int smb2_mkdir_async(struct smb2_context *smb2, const char *path,
 int smb2_mkdir(struct smb2_context *smb2, const char *path);
 
 /*
+ * Async getinfo()
+ *
+ * This is a lower-level call used by various "stat" type functions
+ * but is also useful for more detailed queries.
+ *
+ * the buffer st will be filled with a data structure depending
+ * on the type/class of request
+ *
+ * pass in <= 0 for output_buffer_length to use the default value
+ *
+ * Returns
+ *  0     : The operation was initiated. Result of the operation will be
+ *          reported through the callback function.
+ * -errno : There was an error. The callback function will not be invoked.
+ *
+ * When the callback is invoked, status indicates the result:
+ *      0 : Success. Command_data is struct smb2_statvfs
+ * SMB2_STATUS_BUFFER_OVERFLOW: The buffer length supplied wasn't big enough
+ * -errno : An error occurred.
+ */
+int smb2_getinfo_async(struct smb2_context *smb2, const char *path,
+                   uint8_t info_type, uint8_t file_info_class,
+                   void *st,
+                   int output_buffer_length,
+                   smb2_command_cb cb, void *cb_data);
+/*
  * STATVFS
  */
 /*
