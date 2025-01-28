@@ -402,7 +402,8 @@ smb2_encode_file_network_open_info(struct smb2_context *smb2,
         smb2_set_uint64(vec, 32, fs->allocation_size);
         smb2_set_uint64(vec, 40, fs->end_of_file);
         smb2_set_uint32(vec, 48, fs->file_attributes);
-        return 52;
+        smb2_set_uint32(vec, 52, 0);
+        return 56;
 }
 
 
