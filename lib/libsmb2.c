@@ -1975,7 +1975,8 @@ getinfo_cb_2(struct smb2_context *smb2, int status,
         if (stat_data->status == SMB2_STATUS_SUCCESS) {
                 stat_data->status = status;
         }
-        if (stat_data->status != SMB2_STATUS_SUCCESS) {
+        if (stat_data->status != SMB2_STATUS_SUCCESS &&
+                        stat_data->status != SMB2_STATUS_BUFFER_OVERFLOW) {
                 return;
         }
 

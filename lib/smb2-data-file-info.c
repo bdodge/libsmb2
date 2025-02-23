@@ -444,7 +444,7 @@ smb2_decode_file_normalized_name_info(struct smb2_context *smb2,
         uint32_t name_len;
         const char *name;
 
-        if (vec->len < 40) {
+        if (vec->len < 4) {
                 return -1;
         }
 
@@ -472,6 +472,8 @@ smb2_decode_file_normalized_name_info(struct smb2_context *smb2,
         return 0;
 }
 
+#include <stdio.h>
+
 int
 smb2_encode_file_normalized_name_info(struct smb2_context *smb2,
                           struct smb2_file_name_info *fs,
@@ -480,7 +482,20 @@ smb2_encode_file_normalized_name_info(struct smb2_context *smb2,
         struct smb2_utf16 *name = NULL;
         int name_len;
 
-        if (vec->len < 4 + fs->file_name_length * 2) {
+        /* make sure filename length is >= actual name length
+         * (it can be > if name was truncted in decoding if
+         * buffer was too small)
+         */
+        if (fs->name) {
+                name_len = strlen((char*)fs->name);
+                if (fs->file_name_length < name_len) {
+                        fs->file_name_length = name_len;
+                }
+        } else {
+                fs->file_name_length = 0;
+        }
+
+        if (vec->len < (4 + fs->file_name_length * 2)) {
                 return -1;
         }
 
@@ -498,7 +513,6 @@ smb2_encode_file_normalized_name_info(struct smb2_context *smb2,
                                         fs->file_name_length - name_len);
                         }
                         free(name);
-                        return 4 + name_len;
                 } else {
                         return -1;
                 }
