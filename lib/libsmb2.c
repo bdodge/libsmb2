@@ -2033,10 +2033,10 @@ getinfo_cb_1(struct smb2_context *smb2, int status,
         }
 }
 
-static int
+int
 smb2_getinfo_async(struct smb2_context *smb2, const char *path,
                    uint8_t info_type, uint8_t file_info_class,
-                   void *st,
+                   void *st, int sz_size,
                    smb2_command_cb cb, void *cb_data)
 {
         struct stat_cb_data *stat_data;
@@ -2083,7 +2083,10 @@ smb2_getinfo_async(struct smb2_context *smb2, const char *path,
         memset(&qi_req, 0, sizeof(struct smb2_query_info_request));
         qi_req.info_type = info_type;
         qi_req.file_info_class = file_info_class;
-        qi_req.output_buffer_length = DEFAULT_OUTPUT_BUFFER_LENGTH;
+        if (sz_size < 0) {
+               sz_size = DEFAULT_OUTPUT_BUFFER_LENGTH;
+        }
+        qi_req.output_buffer_length = sz_size;
         qi_req.additional_information = 0;
         qi_req.flags = 0;
         memcpy(qi_req.file_id, compound_file_id, SMB2_FD_SIZE);
@@ -2125,7 +2128,7 @@ smb2_stat_async(struct smb2_context *smb2, const char *path,
         return smb2_getinfo_async(smb2, path,
                                   SMB2_0_INFO_FILE,
                                   SMB2_FILE_ALL_INFORMATION,
-                                  st, cb, cb_data);
+                                  st, -1, cb, cb_data);
 }
 
 int
@@ -2136,7 +2139,7 @@ smb2_statvfs_async(struct smb2_context *smb2, const char *path,
         return smb2_getinfo_async(smb2, path,
                                   SMB2_0_INFO_FILESYSTEM,
                                   SMB2_FILE_FS_FULL_SIZE_INFORMATION,
-                                  statvfs, cb, cb_data);
+                                  statvfs, -1, cb, cb_data);
 }
 
 struct trunc_cb_data {
