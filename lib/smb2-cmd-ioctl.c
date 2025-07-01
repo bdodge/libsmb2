@@ -122,6 +122,7 @@ smb2_encode_ioctl_reply(struct smb2_context *smb2,
                           struct smb2_ioctl_reply *rep)
 {
         int len;
+        uint32_t outlen = 0;
         uint8_t *buf;
         struct smb2_iovec *iov, *ioctlv;
 
@@ -140,17 +141,21 @@ smb2_encode_ioctl_reply(struct smb2_context *smb2,
                 case SMB2_FSCTL_VALIDATE_NEGOTIATE_INFO:
                         /* even when passthrough is set we transcode this one
                         */
-                        len = SMB2_IOCTL_VALIDIATE_NEGOTIATE_INFO_SIZE;
+                        outlen = SMB2_IOCTL_VALIDIATE_NEGOTIATE_INFO_SIZE;
                         break;
                 default:
                         if (smb2->passthrough) {
-                                /* assume the replys output is already coded */
-                                len = rep->output_count;
+                                /* assume the reply's output is already coded */
+                                outlen = rep->output_count;
                         }
                         else {
+                                /* assume the reply's output is already coded */
+                                outlen = rep->output_count;
+                                /*
                                 smb2_set_error(smb2, "No handling of code %d", rep->ctl_code);
                                 len = 0;
                                 return -1;
+                                */
                         }
                         break;
                 }
@@ -160,7 +165,7 @@ smb2_encode_ioctl_reply(struct smb2_context *smb2,
                         return -1;
                 }
                 memset(buf, 0, rep->output_count);
-                ioctlv = smb2_add_iovector(smb2, &pdu->out, buf, len, free);
+                ioctlv = smb2_add_iovector(smb2, &pdu->out, buf, outlen, free);
 
                 switch (rep->ctl_code) {
                 case SMB2_FSCTL_VALIDATE_NEGOTIATE_INFO:
@@ -201,7 +206,7 @@ smb2_encode_ioctl_reply(struct smb2_context *smb2,
                         (SMB2_IOCTL_REPLY_SIZE & 0xfffffffe) +
                         PAD_TO_64BIT(rep->input_count));
         /* output_count */
-        smb2_set_uint32(iov, 36, len);
+        smb2_set_uint32(iov, 36, outlen);
         smb2_set_uint32(iov, 40, rep->flags);
 
         return 0;
@@ -421,9 +426,14 @@ smb2_process_ioctl_request_variable(struct smb2_context *smb2,
                         req->input_count = vec.len;
                 }
                 else {
+                        /* dont know how to handle this, let user decode it or not */
+                        ptr = vec.buf;
+                        req->input_count = vec.len;
+                        /*
                         smb2_set_error(smb2,
                                        "No handling for ioctl req %x",
                                         req->ctl_code);
+                        */
                 }
                 break;
         }

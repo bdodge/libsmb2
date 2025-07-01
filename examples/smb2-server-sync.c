@@ -29,6 +29,23 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 #define PAD_TO_32BIT(len) ((len + 0x03) & 0xfffffffc)
 #define PAD_TO_64BIT(len) ((len + 0x07) & 0xfffffff8)
 
+static struct file_test
+{
+        const char *filename;
+        uint32_t accessmask;
+        uint32_t content_size;
+        char *content;
+}
+files[] =
+{
+        { "test1.txt", 0, 23, "hello, I am a text file" },
+        { "test2.bin", 0, 8, "\1\2\3\4\5\6\7\0" },
+        { "last.txt", 0,  17, "another text file" },
+},
+*curfile = &files[0];
+
+#define NUM_FILES (sizeof(files)/sizeof(files[0]))
+
 static int
 fill_file_info(struct smb2_context *smb2, uint8_t info_type, uint8_t file_info_class, void **out_info)
 {
@@ -165,7 +182,7 @@ fill_file_info(struct smb2_context *smb2, uint8_t info_type, uint8_t file_info_c
                         }
                         fs->filesystem_attributes = 0x2; //FILE_CASE_PRESERVED_NAMES;
                         fs->maximum_component_name_length = 0x100;
-                        fs->filesystem_name = (uint8_t*)"Sotero";
+                        fs->filesystem_name = (uint8_t*)"ServerSyncExample";
                         fs->filesystem_name_length = strlen((char*)fs->filesystem_name);
                         info = (uint8_t*)fs;
                         break;
@@ -194,21 +211,16 @@ fill_file_info(struct smb2_context *smb2, uint8_t info_type, uint8_t file_info_c
 
 static int fill_dir_info(struct smb2_context *smb2, uint8_t **out_info)
 {
-        static const char *files[] = {
-                "junk.txt",
-                "crap.bin"
-        };
         struct smb2_fileidbothdirectoryinformation *fsb;
         struct smb2_utf16 *fname = NULL;
         uint8_t *info;
         uint32_t fname_len;
         int len;
-        int nfiles = sizeof(files)/sizeof(files[0]);
         int n;
 
         len = 0;
-        for (n = 0; n < nfiles; n++) {
-                len += PAD_TO_64BIT(sizeof(struct smb2_fileidbothdirectoryinformation) + 2 * strlen(files[n]));
+        for (n = 0; n < NUM_FILES; n++) {
+                len += PAD_TO_64BIT(sizeof(struct smb2_fileidbothdirectoryinformation) + 2 * strlen(files[n].filename));
         }
 
         info = malloc(len);
@@ -219,9 +231,9 @@ static int fill_dir_info(struct smb2_context *smb2, uint8_t **out_info)
         memset(info, 0, len);
 
         len = 0;
-        for (n = 0; n < nfiles; n++) {
+        for (n = 0; n < NUM_FILES; n++) {
                 fname_len = 0;
-                fname = smb2_utf8_to_utf16(files[n]);
+                fname = smb2_utf8_to_utf16(files[n].filename);
                 if (fname == NULL) {
                         //smb2_set_error(smb2, "Could not convert name into UTF-16");
                         return -EINVAL;
@@ -236,8 +248,16 @@ static int fill_dir_info(struct smb2_context *smb2, uint8_t **out_info)
                         fsb->short_name_length = fname_len;
                 }
                 memcpy(fsb->short_name, fname->val, fsb->short_name_length);
-                fsb->name = files[n];
+                fsb->name = files[n].filename;
+                fsb->end_of_file = files[n].content_size;
+                fsb->file_id = n + 0xBEEF0000;
+                fsb->allocation_size = 256;
                 len += PAD_TO_64BIT(sizeof(struct smb2_fileidbothdirectoryinformation));
+                if (n < NUM_FILES - 1) {
+                        fsb->next_entry_offset = PAD_TO_64BIT(sizeof(struct smb2_fileidbothdirectoryinformation));
+                } else {
+                        fsb->next_entry_offset = 0;
+                }
                 free(fname);
         }
         *out_info = info;
@@ -274,6 +294,7 @@ static int tree_connect_handler(struct smb2_server *srvr, struct smb2_context *s
 {
         rep->share_type = SMB2_SHARE_TYPE_DISK;
         rep->maximal_access = 0x101f01ff;
+        const char *path;
 
         if (req->path && req->path_length) {
                 int ei = (req->path_length / 2) - 4;
@@ -284,6 +305,12 @@ static int tree_connect_handler(struct smb2_server *srvr, struct smb2_context *s
                         }
                 }
         }
+        else {
+                path = smb2_utf16_to_utf8(req->path, req->path_length / 2);
+                printf("treec=%s=\n", path);
+                curfile = &files[1];
+        }
+
         rep->share_flags = 0;
         rep->capabilities = 0;
 
@@ -368,9 +395,11 @@ int ioctl_handler(struct smb2_server *srvr, struct smb2_context *smb2,
 
         switch(rep->ctl_code) {
         case SMB2_FSCTL_VALIDATE_NEGOTIATE_INFO:
+                // this is hanled internally by libsmb2
                 break;
         default:
-                return 1;
+                // report not-implemented
+                return -1;
         }
         return 0;
 }

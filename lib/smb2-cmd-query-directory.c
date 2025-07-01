@@ -315,7 +315,7 @@ smb2_encode_query_directory_reply(struct smb2_context *smb2,
                         in_offset += PAD_TO_64BIT(sizeof(struct smb2_fileidbothdirectoryinformation));
                         in_remain -= PAD_TO_64BIT(sizeof(struct smb2_fileidbothdirectoryinformation));
                         if (in_remain >= SMB2_FILEID_BOTH_DIRECTORY_INFORMATION_SIZE) {
-                                smb2_set_uint32(iov, offset + 0, offset + fs_size);
+                                smb2_set_uint32(iov, offset + 0, fs_size);
                         }
                         else {
                                 smb2_set_uint32(iov, offset + 0, 0);
